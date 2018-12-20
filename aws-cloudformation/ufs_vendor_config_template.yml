@@ -3,6 +3,7 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: This stack creates/update UFS-vendor-config (ConfigServer) and all related resources
   to an existing VPC
 
+
 Parameters:
   ParentStackName:
     Description: Stack name created by the UFS parent template
