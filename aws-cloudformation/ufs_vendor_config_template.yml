@@ -3,6 +3,7 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: This stack creates/update UFS-vendor-config (ConfigServer) and all related resources
   to an existing VPC
 
+
 Parameters:
   ParentStackName:
     Description: Stack name created by the UFS parent template
@@ -30,8 +31,6 @@ Parameters:
 
 
 Resources:
-
-# Config Server
 
   ConfigServerServiceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -80,8 +79,8 @@ Resources:
             Options:
               awslogs-group:
                 Fn::ImportValue: !Sub '${ParentStackName}:GFSLogGroup'
-                awslogs-region:
-                  Fn::ImportValue: !Sub '${ParentStackName}:RegionName'
+              awslogs-region:
+                Fn::ImportValue: !Sub '${ParentStackName}:RegionName'
               awslogs-stream-prefix: "config"
 
   ConfigServerService:
