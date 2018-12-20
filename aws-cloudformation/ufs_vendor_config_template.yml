@@ -1,0 +1,184 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: This stack creates/update UFS-vendor-config (ConfigServer) and all related resources
+  to an existing VPC
+
+Parameters:
+  ParentStackName:
+    Description: Stack name created by the UFS parent template
+    Type: String
+
+  ConfigServerDockerImageVersion:
+    Description: Region where the VPC and resources will be created/updated
+    Type: String
+    Default: latest
+
+  ConfigServerDBName:
+    Description: Vendor Configuration DB name
+    Type: String
+    Default: config
+
+  ConfigServerDBUserName:
+    Description: Vendor Configuration DB user name
+    Type: String
+    Default: fulfillment
+
+  ConfigServerPassword:
+    Description: Vendor Configuration DB user password
+    Type: String
+    Default: whatIsThis98
+
+Resources:
+
+# Config Server
+
+  ConfigServerServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access from the ALB load balancer
+      VpcId:
+        Fn::ImportValue: !Sub '${ParentStackName}:VPCId'
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !Ref 'ConfigServerLoadBalancerSecurityGroup'
+          IpProtocol: -1
+
+  # A security group for OTHER services to use, so they can read configs from the config server
+  ConfigServerReaderSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to the Config Server ALB
+      VpcId:
+        Fn::ImportValue: !Sub '${ParentStackName}:VPCId'
+
+  ConfigServerTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: 'ConfigServer'
+      Cpu: 1024 # 1 CPU
+      Memory: 2048
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub '${ParentStackName}:ECSTaskExecutionRole'
+      ContainerDefinitions:
+        -
+          Name: !Join ['-', ['config-server', !Ref 'AWS::StackName']]
+          Cpu: 1024
+          Memory: 2048
+          Image: 'hyness/spring-cloud-config-server'
+          PortMappings:
+            - ContainerPort: 8888
+          Environment:
+            - Name: SPRING_CLOUD_CONFIG_SERVER_GIT_URI
+              Value: https://github.com/jose-e-mendez/gfs-configuration-data
+            - Name: ENCRYPT_KEY
+              Value: gLoBaLfUlLfIlLmEnT
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub '${ParentStackName}:GFSLogGroup'
+                awslogs-region:
+                  Fn::ImportValue: !Sub '${ParentStackName}:RegionName'
+              awslogs-stream-prefix: "config"
+
+  ConfigServerService:
+    Type: AWS::ECS::Service
+    DependsOn: ConfigServerLoadBalancerRule
+    Properties:
+      ServiceName: 'ConfigServer'
+      Cluster:
+        Fn::ImportValue: !Sub '${ParentStackName}:ECSCluster'
+      HealthCheckGracePeriodSeconds: 30
+      LaunchType: FARGATE
+      DeploymentConfiguration:
+        MaximumPercent: 400
+        MinimumHealthyPercent: 100
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          SecurityGroups: [!Ref 'ConfigServerServiceSecurityGroup']
+          Subnets:
+            - Fn::ImportValue: !Sub '${ParentStackName}:PrivateSubnet1'
+            - Fn::ImportValue: !Sub '${ParentStackName}:PrivateSubnet2'
+      TaskDefinition: !Ref 'ConfigServerTaskDefinition'
+      LoadBalancers:
+        - ContainerName: !Join ['-', ['config-server', !Ref 'AWS::StackName']]
+          ContainerPort: 8888
+          TargetGroupArn: !Ref 'ConfigServerTargetGroup'
+
+  ConfigServerTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 6
+      HealthCheckPath: /actuator/health
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Matcher:
+        HttpCode: 200
+      TargetType: ip
+      Name: !Join ['-', ['ConfigServerTargetGroup', !Ref 'AWS::StackName']]
+      Port: 8888
+      Protocol: HTTP
+      VpcId:
+        Fn::ImportValue: !Sub '${ParentStackName}:VPCId'
+
+  ConfigServerLoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to the config server load balancer
+      VpcId:
+        Fn::ImportValue: !Sub '${ParentStackName}:VPCId'
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !Ref 'ConfigServerReaderSecurityGroup'
+          IpProtocol: -1
+
+  # Create a rule on the load balancer for routing traffic to the target group
+  ConfigServerLoadBalancerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref 'ConfigServerTargetGroup'
+          Type: 'forward'
+      Conditions:
+        - Field: path-pattern
+          Values: ['*']
+      ListenerArn: !Ref 'ConfigServerLoadBalancerListener'
+      Priority: 1
+
+  ConfigServerLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internal
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: '30'
+      Subnets:
+        # The load balancer is placed into the private subnets, so that traffic
+        # from the internet cannot reach the load balancer directly via the internet gateway
+        - Fn::ImportValue: !Sub '${ParentStackName}:PrivateSubnet1'
+        - Fn::ImportValue: !Sub '${ParentStackName}:PrivateSubnet2'
+      SecurityGroups: [!Ref 'ConfigServerLoadBalancerSecurityGroup']
+
+  ConfigServerLoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    DependsOn:
+      - ConfigServerLoadBalancer
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref 'ConfigServerTargetGroup'
+          Type: 'forward'
+      LoadBalancerArn: !Ref 'ConfigServerLoadBalancer'
+      Port: 80
+      Protocol: HTTP
+
+Outputs:
+
+  ConfigServerUrl:
+    Description: The url of the Config Server load balancer
+    Value: !Join ['', ['http://', !GetAtt 'ConfigServerLoadBalancer.DNSName']]
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'ConfigServerUrl' ] ]
