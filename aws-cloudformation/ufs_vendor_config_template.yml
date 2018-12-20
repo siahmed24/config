@@ -77,8 +77,8 @@ Resources:
             Options:
               awslogs-group:
                 Fn::ImportValue: !Sub '${ParentStackName}:GFSLogGroup'
-                awslogs-region:
-                  Fn::ImportValue: !Sub '${ParentStackName}:RegionName'
+              awslogs-region:
+                Fn::ImportValue: !Sub '${ParentStackName}:RegionName'
               awslogs-stream-prefix: "config"
 
   ConfigServerService:
