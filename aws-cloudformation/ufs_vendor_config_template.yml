@@ -30,8 +30,6 @@ Parameters:
 
 Resources:
 
-# Config Server
-
   ConfigServerServiceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
