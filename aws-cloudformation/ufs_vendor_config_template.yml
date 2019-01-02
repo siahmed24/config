@@ -178,7 +178,13 @@ Resources:
 Outputs:
 
   ConfigServerUrl:
-    Description: The url of the Config Server load balancer 
+    Description: The url of the Config Server load balancer
     Value: !Join ['', ['http://', !GetAtt 'ConfigServerLoadBalancer.DNSName']]
     Export:
       Name: !Join [ ':', [ !Ref 'AWS::StackName', 'ConfigServerUrl' ] ]
+      
+  ConfigServerReaderSecurityGroup:
+    Description: Access to the Config Server ALB
+    Value: !Ref 'ConfigServerReaderSecurityGroup'
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'ConfigServerReaderSecurityGroup' ] ] 
