@@ -1,2 +1,1 @@
-vendor.id.1131.url=http://dev.united.com
 vendor.id.1132.url=http://dev.southwest.com
